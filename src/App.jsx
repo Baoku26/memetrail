@@ -1,0 +1,538 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import  './App.css'
+
+// Game constants
+const GAME_WIDTH = 800;
+const GAME_HEIGHT = 500;
+const PLAYER_SPEED = 8;
+const HEALTH_MAX = 5;
+const BASE_HEALTH_DRAIN_INTERVAL = 8000; // 8 seconds at normal speed
+const BASE_MEME_SPAWN_INTERVAL = 3000; // 3 seconds at normal speed
+const BASE_MEME_DESPAWN_TIME = 8000; // 8 seconds before memes disappear
+const SPEED_BOOST_MULTIPLIER = 0.6; // 40% faster when at max health
+const HEALTH_PER_MEME = 1; // Health restored per meme collected
+
+// Meme types for collection (matching your sprite names)
+const MEME_TYPES = ['trollface', 'doge', 'pepe', 'nyan', 'rickroll', 'stonks', 'distracted', 'drake'];
+
+// HUD Component
+function HUD({ health, memesCollected, speedBoostActive }) {
+    return (
+        <div className="w-full h-16 flex justify-between items-center px-6 bg-black border-2 border-green-400 text-green-400 text-sm relative">
+            {/* Glowing border effect */}
+            <div className="absolute inset-0 border-2 border-green-400 opacity-50 animate-pulse"></div>
+
+            {/* Speed boost indicator */}
+            {speedBoostActive && (
+                <div className="absolute inset-0 border-2 border-yellow-400 opacity-60 animate-ping"></div>
+            )}
+
+            <div className="flex items-center gap-4 relative z-10">
+        <span className={`font-bold tracking-wider ${speedBoostActive ? 'text-yellow-400' : 'text-green-400'}`}>
+          HEALTH: {' '}
+            <span className={speedBoostActive ? 'text-yellow-300' : 'text-green-300'}>
+            {'█'.repeat(Math.max(0, health))}
+                {'░'.repeat(Math.max(0, HEALTH_MAX - health))}
+          </span>
+        </span>
+
+                {/* Pixel heart icon with speed boost effect */}
+                <div className={`text-lg ${speedBoostActive ? 'text-yellow-400 animate-pulse' : 'text-green-400'}`}>♥</div>
+            </div>
+
+            <div className="flex items-center gap-4 relative z-10">
+                {speedBoostActive && (
+                    <div className="text-yellow-400 text-xs animate-pulse font-bold">
+                        ⚡ SPEED BOOST! ⚡
+                    </div>
+                )}
+                <span className={`font-bold tracking-wider ${speedBoostActive ? 'text-yellow-400' : 'text-green-400'}`}>
+          MEMES COLLECTED: <span className={speedBoostActive ? 'text-yellow-300' : 'text-green-300'}>{memesCollected.toString().padStart(3, '0')}</span>
+        </span>
+            </div>
+        </div>
+    );
+}
+
+// Sprite Component
+function Sprite({ type, position, size = 32, memeType = null }) {
+    // Image paths for your custom sprites
+    const spriteImageMap = {
+        wagon: '/sprites/wagon.png',
+        ox: '/sprites/ox.png',
+        player: '/sprites/ox-wagon.png', // Combined ox + wagon sprite
+        trollface: '/sprites/memes/trollface.png',
+        doge: '/sprites/memes/doge.png',
+        pepe: '/sprites/memes/pepe.png',
+        nyan: '/sprites/memes/nyan.png',
+        rickroll: '/sprites/memes/rickroll.png',
+        stonks: '/sprites/memes/stonks.png',
+        distracted: '/sprites/memes/distracted.png',
+        drake: '/sprites/memes/drake.png'
+    };
+
+    // Fallback emoji sprites (for development/testing)
+    const fallbackSpriteMap = {
+        wagon: '🛺',
+        ox: '🐂',
+        player: '🐂🛺',
+        trollface: '😈',
+        doge: '🐕',
+        pepe: '🐸',
+        nyan: '🌈',
+        rickroll: '🎵',
+        stonks: '📈',
+        distracted: '👀',
+        drake: '🎤'
+    };
+
+    // Determine which sprite to use
+    let spriteKey = type;
+    if (type === 'meme' && memeType) {
+        spriteKey = memeType;
+    }
+
+    const imageSrc = spriteImageMap[spriteKey];
+    const fallbackSprite = fallbackSpriteMap[spriteKey] || '⬛';
+
+    return (
+        <div
+            className="absolute select-none pointer-events-none"
+            style={{
+                left: position.x,
+                top: position.y,
+                width: size,
+                height: size,
+                filter: 'drop-shadow(0 0 4px #00ff00)'
+            }}
+        >
+            {imageSrc ? (
+                <img
+                    src={imageSrc}
+                    alt={spriteKey}
+                    className="w-full h-full object-contain pixelated"
+                    style={{
+                        imageRendering: 'pixelated',
+                        imageRendering: '-moz-crisp-edges',
+                        imageRendering: 'crisp-edges'
+                    }}
+                    onError={(e) => {
+                        // Fallback to emoji if image fails to load
+                        e.target.style.display = 'none';
+                        e.target.nextSibling.style.display = 'block';
+                    }}
+                />
+            ) : null}
+
+            {/* Fallback emoji sprite */}
+            <div
+                className="text-green-400 flex items-center justify-center w-full h-full"
+                style={{
+                    fontSize: `${size * 0.8}px`,
+                    textShadow: '0 0 8px #00ff00',
+                    display: imageSrc ? 'none' : 'block'
+                }}
+            >
+                {type === 'player' ? (
+                    <div className="flex items-center">
+                        <span>🐂</span>
+                        <span>🛺</span>
+                    </div>
+                ) : (
+                    fallbackSprite
+                )}
+            </div>
+        </div>
+    );
+}
+
+// GameBoard Component
+function GameBoard({
+                       playerPosition,
+                       setPlayerPosition,
+                       memes,
+                       setMemes,
+                       setMemesCollected,
+                       setInventory,
+                       setHealth,
+                       gameOver
+                   }) {
+    const [keys, setKeys] = useState({});
+
+    // Handle keydown/keyup
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            setKeys(prev => ({ ...prev, [e.key.toLowerCase()]: true }));
+        };
+
+        const handleKeyUp = (e) => {
+            setKeys(prev => ({ ...prev, [e.key.toLowerCase()]: false }));
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, []);
+
+    // Player movement
+    useEffect(() => {
+        if (gameOver) return;
+
+        const interval = setInterval(() => {
+            setPlayerPosition(pos => {
+                let { x, y } = pos;
+
+                if (keys['arrowup'] || keys['w']) y = Math.max(0, y - PLAYER_SPEED);
+                if (keys['arrowdown'] || keys['s']) y = Math.min(GAME_HEIGHT - 60, y + PLAYER_SPEED);
+                if (keys['arrowleft'] || keys['a']) x = Math.max(0, x - PLAYER_SPEED);
+                if (keys['arrowright'] || keys['d']) x = Math.min(GAME_WIDTH - 100, x + PLAYER_SPEED);
+
+                return { x, y };
+            });
+        }, 16); // ~60fps
+
+        return () => clearInterval(interval);
+    }, [keys, gameOver, setPlayerPosition]);
+
+    // Collision detection with health restoration
+    useEffect(() => {
+        memes.forEach((meme, index) => {
+            const distance = Math.sqrt(
+                Math.pow(playerPosition.x - meme.x, 2) +
+                Math.pow(playerPosition.y - meme.y, 2)
+            );
+
+            if (distance < 40) { // Collision threshold
+                // Remove the collected meme
+                setMemes(prev => prev.filter((_, i) => i !== index));
+
+                // Increase meme counter
+                setMemesCollected(prev => prev + 1);
+
+                // Add to inventory
+                setInventory(prev => [...prev, meme.type]);
+
+                // RESTORE HEALTH - This is the key fix!
+                setHealth(prev => {
+                    console.log(`Health restored! Was: ${prev}, Now: ${Math.min(HEALTH_MAX, prev + HEALTH_PER_MEME)}`);
+                    return Math.min(HEALTH_MAX, prev + HEALTH_PER_MEME);
+                });
+            }
+        });
+    }, [playerPosition, memes, setMemes, setMemesCollected, setInventory, setHealth]);
+
+    return (
+        <div
+            className="flex-1 relative bg-black overflow-hidden border-2 border-green-400"
+            style={{ height: GAME_HEIGHT }}
+        >
+            {/* Glowing border effect */}
+            <div className="absolute inset-0 border-2 border-green-400 opacity-30 animate-pulse"></div>
+
+            {/* Grid pattern for retro feel */}
+            <div
+                className="absolute inset-0 opacity-10"
+                style={{
+                    backgroundImage: `
+            linear-gradient(rgba(0,255,0,0.1) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,255,0,0.1) 1px, transparent 1px)
+          `,
+                    backgroundSize: '20px 20px'
+                }}
+            ></div>
+
+            {/* Player sprite */}
+            <Sprite type="player" position={playerPosition} size={24} />
+
+            {/* Meme collectibles */}
+            {memes.map((meme, index) => (
+                <Sprite
+                    key={index}
+                    type="meme"
+                    memeType={meme.type}
+                    position={meme}
+                    size={24}
+                />
+            ))}
+
+            {/* Game Over overlay */}
+            {gameOver && (
+                <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
+                    <div className="text-green-400 text-center">
+                        <div className="text-2xl mb-4 animate-pulse">GAME OVER</div>
+                        <div className="text-sm">Press R to restart</div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Inventory Component
+function Inventory({ inventory }) {
+    return (
+        <div className="absolute bottom-4 left-4 border-2 border-green-400 bg-black p-3 min-w-32">
+            {/* Glowing border */}
+            <div className="absolute inset-0 border-2 border-green-400 opacity-50"></div>
+
+            <div className="relative z-10">
+                <h2 className="text-green-400 text-xs mb-2 text-center">INVENTORY</h2>
+                <div className="grid grid-cols-2 gap-2 min-h-16">
+                    {inventory.slice(-4).map((item, i) => (
+                        <div key={i} className="flex items-center justify-center w-8 h-8">
+                            <Sprite
+                                type="meme"
+                                memeType={item}
+                                position={{ x: 0, y: 0 }}
+                                size={16}
+                            />
+                        </div>
+                    ))}
+                    {inventory.length === 0 && (
+                        <div className="col-span-2 text-green-400 text-xs text-center opacity-50">
+                            EMPTY
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// MiniMap Component
+function MiniMap({ playerPosition, memes }) {
+    const scaleX = 80 / GAME_WIDTH;  // Adjusted for better representation
+    const scaleY = 50 / GAME_HEIGHT;
+
+    return (
+        <div className="absolute bottom-4 right-4 border-2 border-green-400 bg-black p-3">
+            {/* Glowing border */}
+            <div className="absolute inset-0 border-2 border-green-400 opacity-50"></div>
+
+            <div className="relative z-10">
+                <h2 className="text-green-400 text-xs mb-2 text-center">MINIMAP</h2>
+                <div className="w-20 h-12 relative border border-green-400 bg-black">
+                    {/* Player dot */}
+                    <div
+                        className="absolute w-1 h-1 bg-green-400 animate-pulse rounded-full"
+                        style={{
+                            left: Math.max(0, Math.min(78, playerPosition.x * scaleX)),
+                            top: Math.max(0, Math.min(48, playerPosition.y * scaleY))
+                        }}
+                    ></div>
+
+                    {/* Meme dots */}
+                    {memes.map((meme, i) => (
+                        <div
+                            key={i}
+                            className="absolute w-0.5 h-0.5 bg-green-300 opacity-75 rounded-full"
+                            style={{
+                                left: Math.max(0, Math.min(78, meme.x * scaleX)),
+                                top: Math.max(0, Math.min(48, meme.y * scaleY))
+                            }}
+                        ></div>
+                    ))}
+                </div>
+
+                <div className="text-green-400 text-xs mt-1 text-center">
+                    {Math.floor(playerPosition.x)},{Math.floor(playerPosition.y)}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Main App Component
+export default function App() {
+    const [health, setHealth] = useState(HEALTH_MAX);
+    const [memesCollected, setMemesCollected] = useState(0);
+    const [inventory, setInventory] = useState([]);
+    const [playerPosition, setPlayerPosition] = useState({ x: 100, y: 200 });
+    const [memes, setMemes] = useState([]);
+    const [gameOver, setGameOver] = useState(false);
+    const [gameStarted, setGameStarted] = useState(false);
+    const [isMaxHealth, setIsMaxHealth] = useState(false);
+    const [speedBoostActive, setSpeedBoostActive] = useState(false);
+
+    // Check if player is at max health for speed boost
+    useEffect(() => {
+        const maxHealth = health === HEALTH_MAX;
+        setIsMaxHealth(maxHealth);
+
+        if (maxHealth && !speedBoostActive) {
+            setSpeedBoostActive(true);
+            console.log('SPEED BOOST ACTIVATED!');
+        } else if (!maxHealth && speedBoostActive) {
+            // Add a small delay before deactivating speed boost to prevent flickering
+            const timeout = setTimeout(() => {
+                setSpeedBoostActive(false);
+                console.log('Speed boost deactivated');
+            }, 1000);
+            return () => clearTimeout(timeout);
+        }
+    }, [health, speedBoostActive]);
+
+    // Calculate dynamic intervals based on speed boost
+    const currentHealthDrainInterval = speedBoostActive
+        ? BASE_HEALTH_DRAIN_INTERVAL * SPEED_BOOST_MULTIPLIER
+        : BASE_HEALTH_DRAIN_INTERVAL;
+
+    const currentMemeSpawnInterval = speedBoostActive
+        ? BASE_MEME_SPAWN_INTERVAL * SPEED_BOOST_MULTIPLIER
+        : BASE_MEME_SPAWN_INTERVAL;
+
+    // Spawn memes periodically with dynamic speed
+    useEffect(() => {
+        if (gameOver || !gameStarted) return;
+
+        console.log(`Spawning memes every ${currentMemeSpawnInterval}ms (Speed boost: ${speedBoostActive})`);
+
+        const interval = setInterval(() => {
+            const newMeme = {
+                x: Math.random() * (GAME_WIDTH - 50),
+                y: Math.random() * (GAME_HEIGHT - 50),
+                type: MEME_TYPES[Math.floor(Math.random() * MEME_TYPES.length)],
+                spawnTime: Date.now()
+            };
+
+            setMemes(prev => [...prev, newMeme]);
+        }, currentMemeSpawnInterval);
+
+        return () => clearInterval(interval);
+    }, [gameOver, gameStarted, currentMemeSpawnInterval, speedBoostActive]);
+
+    // Remove old memes (despawn system) with dynamic speed
+    useEffect(() => {
+        if (gameOver || !gameStarted) return;
+
+        const interval = setInterval(() => {
+            const currentTime = Date.now();
+            const despawnTime = speedBoostActive
+                ? BASE_MEME_DESPAWN_TIME * SPEED_BOOST_MULTIPLIER
+                : BASE_MEME_DESPAWN_TIME;
+
+            setMemes(prev => prev.filter(meme =>
+                currentTime - meme.spawnTime < despawnTime
+            ));
+        }, 1000); // Check every second
+
+        return () => clearInterval(interval);
+    }, [gameOver, gameStarted, speedBoostActive]);
+
+    // Health drain over time with dynamic speed
+    useEffect(() => {
+        if (gameOver || !gameStarted) return;
+
+        console.log(`Health draining every ${currentHealthDrainInterval}ms (Speed boost: ${speedBoostActive})`);
+
+        const interval = setInterval(() => {
+            setHealth(prev => {
+                const newHealth = prev - 1;
+                console.log(`Health drained: ${prev} -> ${newHealth}`);
+                if (newHealth <= 0) {
+                    setGameOver(true);
+                    return 0;
+                }
+                return newHealth;
+            });
+        }, currentHealthDrainInterval);
+
+        return () => clearInterval(interval);
+    }, [gameOver, gameStarted, currentHealthDrainInterval, speedBoostActive]);
+
+    // Restart game
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key.toLowerCase() === 'r' && gameOver) {
+                setHealth(HEALTH_MAX);
+                setMemesCollected(0);
+                setInventory([]);
+                setPlayerPosition({ x: 100, y: 200 });
+                setMemes([]);
+                setGameOver(false);
+                setSpeedBoostActive(false);
+                setIsMaxHealth(true);
+            }
+            if (e.key === ' ' && !gameStarted) {
+                setGameStarted(true);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [gameOver, gameStarted]);
+
+    // Initial memes
+    useEffect(() => {
+        if (gameStarted && memes.length === 0) {
+            const initialMemes = Array.from({ length: 3 }, () => ({
+                x: Math.random() * (GAME_WIDTH - 50),
+                y: Math.random() * (GAME_HEIGHT - 50),
+                type: MEME_TYPES[Math.floor(Math.random() * MEME_TYPES.length)],
+                spawnTime: Date.now()
+            }));
+            setMemes(initialMemes);
+        }
+    }, [gameStarted, memes.length]);
+
+    return (
+        <div className="h-screen w-screen bg-black text-green-400 font-mono overflow-hidden">
+            {/* CRT scanlines effect */}
+            <div
+                className="absolute inset-0 pointer-events-none z-50 opacity-20"
+                style={{
+                    background: `repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0,255,0,0.03) 2px,
+            rgba(0,255,0,0.03) 4px
+          )`
+                }}
+            ></div>
+
+            {/* Outer glowing border */}
+            <div className="h-full w-full border-4 border-green-400 relative">
+                <div className="absolute inset-0 border-4 border-green-400 opacity-50 animate-pulse"></div>
+
+                {!gameStarted ? (
+                    <div className="h-full flex items-center justify-center bg-black">
+                        <div className="text-center text-green-400">
+                            <div className="text-4xl mb-8 animate-pulse">MEME TRAIL</div>
+                            <div className="text-lg mb-4">Survive by collecting memes!</div>
+                            <div className="text-sm mb-8">
+                                Use WASD or Arrow Keys to move<br/>
+                                Health drains over time<br/>
+                                <span className="text-yellow-400">Collect memes to restore health!</span><br/>
+                                <span className="text-yellow-400">Max health = SPEED BOOST!</span>
+                            </div>
+                            <div className="text-lg animate-pulse">Press SPACE to start</div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="h-full flex flex-col">
+                        <HUD health={health} memesCollected={memesCollected} speedBoostActive={speedBoostActive} />
+                        <div className="flex-1 relative">
+                            <GameBoard
+                                playerPosition={playerPosition}
+                                setPlayerPosition={setPlayerPosition}
+                                memes={memes}
+                                setMemes={setMemes}
+                                setMemesCollected={setMemesCollected}
+                                setInventory={setInventory}
+                                setHealth={setHealth}
+                                gameOver={gameOver}
+                            />
+                            <Inventory inventory={inventory} />
+                            <MiniMap playerPosition={playerPosition} memes={memes} />
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
