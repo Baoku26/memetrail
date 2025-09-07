@@ -25,8 +25,94 @@ const MEME_TYPES = [
   "drake",
 ];
 
+// Pause Modal Component
+function PauseModal({ memesCollected, onResume }) {
+  return (
+    <div className="absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+      {/* Main modal container */}
+      <div className="border-4 border-green-400 bg-black p-8 relative min-w-96">
+        {/* Glowing border effects */}
+        <div className="absolute inset-0 border-4 border-green-400 opacity-50 animate-pulse"></div>
+        <div className="absolute inset-0 border-2 border-green-400 opacity-30"></div>
+
+        <div className="relative z-10 text-center text-green-400">
+          {/* Title */}
+          <div className="text-3xl mb-6 animate-pulse tracking-wider">
+            ⏸️ GAME PAUSED ⏸️
+          </div>
+
+          {/* Grid pattern background for retro feel */}
+          <div
+            className="absolute inset-0 opacity-5 pointer-events-none"
+            style={{
+              backgroundImage: `
+                linear-gradient(rgba(0,255,0,0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,255,0,0.1) 1px, transparent 1px)
+              `,
+              backgroundSize: "20px 20px",
+            }}
+          ></div>
+
+          {/* Score display */}
+          <div className="mb-8 relative">
+            <div className="text-lg mb-2 tracking-wider">CURRENT SCORE</div>
+            <div className="border-2 border-green-400 p-4 bg-black relative">
+              <div className="absolute inset-0 border-2 border-green-400 opacity-30"></div>
+              <div className="relative z-10">
+                <div className="text-2xl font-bold text-green-300 tracking-widest">
+                  {memesCollected.toString().padStart(3, "0")}
+                </div>
+                <div className="text-sm opacity-75 mt-1">MEMES COLLECTED</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="space-y-3 text-sm">
+            <div className="border border-green-400 p-3 opacity-75">
+              <div className="tracking-wider">CONTROLS</div>
+              <div className="mt-2 text-xs opacity-60">
+                WASD / ARROW KEYS - MOVE
+                <br />
+                P / ESC - PAUSE/RESUME
+                <br />R - RESTART (WHEN GAME OVER)
+              </div>
+            </div>
+
+            <div className="border border-green-400 p-3 opacity-75">
+              <div className="tracking-wider">OBJECTIVE</div>
+              <div className="mt-2 text-xs opacity-60">
+                COLLECT MEMES TO RESTORE HEALTH
+                <br />
+                FULL HEALTH = SPEED BOOST!
+              </div>
+            </div>
+          </div>
+
+          {/* Resume button */}
+          <div className="mt-6">
+            <button
+              onClick={onResume}
+              className="border-2 border-green-400 bg-black px-6 py-2 text-green-400 hover:bg-green-400 hover:text-black transition-colors duration-200 relative group"
+            >
+              <div className="absolute inset-0 border-2 border-green-400 opacity-50 group-hover:opacity-100"></div>
+              <span className="relative z-10 tracking-wider font-bold">
+                ▶️ RESUME GAME
+              </span>
+            </button>
+          </div>
+
+          <div className="mt-4 text-xs opacity-60 animate-pulse">
+            Press P or ESC to resume
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // HUD Component
-function HUD({ health, memesCollected, speedBoostActive }) {
+function HUD({ health, memesCollected, speedBoostActive, isPaused, onPause }) {
   return (
     <div className="w-full h-16 flex justify-between items-center px-6 bg-black border-2 border-green-400 text-green-400 text-sm relative">
       {/* Glowing border effect */}
@@ -82,6 +168,18 @@ function HUD({ health, memesCollected, speedBoostActive }) {
             {memesCollected.toString().padStart(3, "0")}
           </span>
         </span>
+
+        {/* Pause button */}
+        <button
+          onClick={onPause}
+          className="border border-green-400 px-2 py-1 text-xs hover:bg-green-400 hover:text-black transition-colors duration-200 relative group"
+          disabled={isPaused}
+        >
+          <div className="absolute inset-0 border border-green-400 opacity-50 group-hover:opacity-100"></div>
+          <span className="relative z-10 tracking-wider">
+            {isPaused ? "⏸️" : "⏸️ PAUSE"}
+          </span>
+        </button>
       </div>
     </div>
   );
@@ -132,11 +230,11 @@ function Sprite({ type, position, size = 52, memeType = null }) {
         src={imageSrc}
         alt={spriteKey}
         className="w-full h-full object-contain pixelated"
-        style={{
-          imageRendering: "pixelated",
-          imageRendering: "-moz-crisp-edges",
-          imageRendering: "crisp-edges",
-        }}
+        // style={{
+        //   imageRendering: "pixelated",
+        //   imageRendering: "-moz-crisp-edges",
+        //   imageRendering: "crisp-edges",
+        // }}
       />
     </div>
   );
@@ -152,6 +250,7 @@ function GameBoard({
   setInventory,
   setHealth,
   gameOver,
+  isPaused,
 }) {
   const [keys, setKeys] = useState({});
 
@@ -176,7 +275,7 @@ function GameBoard({
 
   // Player movement - FIXED BOUNDARIES
   useEffect(() => {
-    if (gameOver) return;
+    if (gameOver || isPaused) return;
 
     const interval = setInterval(() => {
       setPlayerPosition((pos) => {
@@ -195,10 +294,12 @@ function GameBoard({
     }, 16); // ~60fps
 
     return () => clearInterval(interval);
-  }, [keys, gameOver, setPlayerPosition]);
+  }, [keys, gameOver, isPaused, setPlayerPosition]);
 
   // Collision detection with health restoration
   useEffect(() => {
+    if (isPaused) return;
+
     memes.forEach((meme, index) => {
       const distance = Math.sqrt(
         Math.pow(playerPosition.x - meme.x, 2) +
@@ -235,6 +336,7 @@ function GameBoard({
     setMemesCollected,
     setInventory,
     setHealth,
+    isPaused,
   ]);
 
   return (
@@ -367,6 +469,7 @@ export default function App() {
   const [memes, setMemes] = useState([]);
   const [gameOver, setGameOver] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isMaxHealth, setIsMaxHealth] = useState(false);
   const [speedBoostActive, setSpeedBoostActive] = useState(false);
 
@@ -399,7 +502,7 @@ export default function App() {
 
   // Spawn memes periodically with dynamic speed - FIXED SPAWN BOUNDARIES
   useEffect(() => {
-    if (gameOver || !gameStarted) return;
+    if (gameOver || !gameStarted || isPaused) return;
 
     console.log(
       `Spawning memes every ${currentMemeSpawnInterval}ms (Speed boost: ${speedBoostActive})`
@@ -417,11 +520,17 @@ export default function App() {
     }, currentMemeSpawnInterval);
 
     return () => clearInterval(interval);
-  }, [gameOver, gameStarted, currentMemeSpawnInterval, speedBoostActive]);
+  }, [
+    gameOver,
+    gameStarted,
+    isPaused,
+    currentMemeSpawnInterval,
+    speedBoostActive,
+  ]);
 
   // Remove old memes (despawn system) with dynamic speed
   useEffect(() => {
-    if (gameOver || !gameStarted) return;
+    if (gameOver || !gameStarted || isPaused) return;
 
     const interval = setInterval(() => {
       const currentTime = Date.now();
@@ -435,11 +544,11 @@ export default function App() {
     }, 1000); // Check every second
 
     return () => clearInterval(interval);
-  }, [gameOver, gameStarted, speedBoostActive]);
+  }, [gameOver, gameStarted, isPaused, speedBoostActive]);
 
   // Health drain over time with dynamic speed
   useEffect(() => {
-    if (gameOver || !gameStarted) return;
+    if (gameOver || !gameStarted || isPaused) return;
 
     console.log(
       `Health draining every ${currentHealthDrainInterval}ms (Speed boost: ${speedBoostActive})`
@@ -458,9 +567,24 @@ export default function App() {
     }, currentHealthDrainInterval);
 
     return () => clearInterval(interval);
-  }, [gameOver, gameStarted, currentHealthDrainInterval, speedBoostActive]);
+  }, [
+    gameOver,
+    gameStarted,
+    isPaused,
+    currentHealthDrainInterval,
+    speedBoostActive,
+  ]);
 
-  // Restart game
+  // Handle pause/resume functionality
+  const handlePause = useCallback(() => {
+    setIsPaused(true);
+  }, []);
+
+  const handleResume = useCallback(() => {
+    setIsPaused(false);
+  }, []);
+
+  // Restart game and keyboard controls
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key.toLowerCase() === "r" && gameOver) {
@@ -470,21 +594,34 @@ export default function App() {
         setPlayerPosition({ x: 100, y: 200 });
         setMemes([]);
         setGameOver(false);
+        setIsPaused(false);
         setSpeedBoostActive(false);
         setIsMaxHealth(true);
       }
       if (e.key === " " && !gameStarted) {
         setGameStarted(true);
       }
+      // Pause/Resume with P key or Escape
+      if (
+        (e.key.toLowerCase() === "p" || e.key === "Escape") &&
+        gameStarted &&
+        !gameOver
+      ) {
+        if (isPaused) {
+          handleResume();
+        } else {
+          handlePause();
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [gameOver, gameStarted]);
+  }, [gameOver, gameStarted, isPaused, handlePause, handleResume]);
 
   // Initial memes - FIXED SPAWN BOUNDARIES
   useEffect(() => {
-    if (gameStarted && memes.length === 0) {
+    if (gameStarted && memes.length === 0 && !isPaused) {
       const initialMemes = Array.from({ length: 3 }, () => ({
         x: Math.random() * (GAME_WIDTH - 24), // Account for meme size
         y: Math.random() * (GAME_HEIGHT - 24), // Account for meme size
@@ -493,7 +630,7 @@ export default function App() {
       }));
       setMemes(initialMemes);
     }
-  }, [gameStarted, memes.length]);
+  }, [gameStarted, memes.length, isPaused]);
 
   return (
     <div className="min-h-screen w-screen bg-black text-green-400 font-mono overflow-hidden flex items-center justify-center">
@@ -535,6 +672,8 @@ export default function App() {
                 <span className="text-yellow-400">
                   Max health = SPEED BOOST!
                 </span>
+                <br />
+                <span className="text-green-300">Press P or ESC to pause</span>
               </div>
               <div className="text-lg animate-pulse">Press SPACE to start</div>
             </div>
@@ -545,6 +684,8 @@ export default function App() {
               health={health}
               memesCollected={memesCollected}
               speedBoostActive={speedBoostActive}
+              isPaused={isPaused}
+              onPause={handlePause}
             />
             <div className="flex-1 relative">
               <GameBoard
@@ -556,9 +697,18 @@ export default function App() {
                 setInventory={setInventory}
                 setHealth={setHealth}
                 gameOver={gameOver}
+                isPaused={isPaused}
               />
               <Inventory inventory={inventory} />
               <MiniMap playerPosition={playerPosition} memes={memes} />
+
+              {/* Pause Modal */}
+              {isPaused && (
+                <PauseModal
+                  memesCollected={memesCollected}
+                  onResume={handleResume}
+                />
+              )}
             </div>
           </div>
         )}
