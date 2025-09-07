@@ -1,6 +1,29 @@
 import React, { useState, useEffect, useCallback } from "react";
 import "./App.css";
 
+// Device detection function
+function isDesktopDevice() {
+  // Check user agent for mobile/tablet indicators
+  const mobileRegex =
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i;
+  const isMobile = mobileRegex.test(navigator.userAgent);
+
+  // Check screen size (mobile devices typically have smaller screens)
+  const isSmallScreen = window.innerWidth < 1024 || window.innerHeight < 600;
+
+  // Check for touch capability (not foolproof but helps)
+  const isTouchDevice =
+    "ontouchstart" in window || navigator.maxTouchPoints > 0;
+
+  // Additional checks for specific mobile/tablet patterns
+  const isTablet = /iPad|Android.*Tablet|Windows.*Touch/i.test(
+    navigator.userAgent
+  );
+
+  // Return true only if it's likely a desktop/laptop
+  return !isMobile && !isTablet && !isSmallScreen && !isTouchDevice;
+}
+
 // Game constants
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 500;
@@ -75,6 +98,8 @@ function PauseModal({ memesCollected, onResume }) {
                 WASD / ARROW KEYS - MOVE
                 <br />
                 P / ESC - PAUSE/RESUME
+                <br />
+                M - MUTE/UNMUTE
                 <br />R - RESTART (WHEN GAME OVER)
               </div>
             </div>
@@ -112,7 +137,15 @@ function PauseModal({ memesCollected, onResume }) {
 }
 
 // HUD Component
-function HUD({ health, memesCollected, speedBoostActive, isPaused, onPause }) {
+function HUD({
+  health,
+  memesCollected,
+  speedBoostActive,
+  isPaused,
+  onPause,
+  isMuted,
+  onToggleMute,
+}) {
   return (
     <div className="w-full h-16 flex justify-between items-center px-6 bg-black border-2 border-green-400 text-green-400 text-sm relative">
       {/* Glowing border effect */}
@@ -168,6 +201,17 @@ function HUD({ health, memesCollected, speedBoostActive, isPaused, onPause }) {
             {memesCollected.toString().padStart(3, "0")}
           </span>
         </span>
+
+        {/* Audio control button */}
+        <button
+          onClick={onToggleMute}
+          className="border border-green-400 px-2 py-1 text-xs hover:bg-green-400 hover:text-black transition-colors duration-200 relative group mr-2"
+        >
+          <div className="absolute inset-0 border border-green-400 opacity-50 group-hover:opacity-100"></div>
+          <span className="relative z-10 tracking-wider">
+            {isMuted ? "🔇" : "🔊"}
+          </span>
+        </button>
 
         {/* Pause button */}
         <button
@@ -472,6 +516,66 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [isMaxHealth, setIsMaxHealth] = useState(false);
   const [speedBoostActive, setSpeedBoostActive] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [backgroundMusic, setBackgroundMusic] = useState(null);
+  const [isDesktop, setIsDesktop] = useState(true);
+
+  // Check device type on mount and window resize
+  useEffect(() => {
+    const checkDevice = () => {
+      setIsDesktop(isDesktopDevice());
+    };
+
+    checkDevice();
+    window.addEventListener("resize", checkDevice);
+
+    return () => window.removeEventListener("resize", checkDevice);
+  }, []);
+
+  // Initialize background music
+  useEffect(() => {
+    // Create audio element
+    const audio = new Audio("/audio/background-music.mp3"); // Add your music file path
+    audio.loop = true; // Loop the music
+    audio.volume = 0.3; // Set volume (0.0 to 1.0)
+    audio.preload = "auto";
+
+    setBackgroundMusic(audio);
+
+    // Cleanup on unmount
+    return () => {
+      if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    };
+  }, []);
+
+  // Handle music play/pause based on game state
+  useEffect(() => {
+    if (!backgroundMusic) return;
+
+    if (gameStarted && !isPaused && !gameOver && !isMuted) {
+      backgroundMusic.play().catch((e) => {
+        console.log("Audio play failed:", e);
+        // Browser might block autoplay, user needs to interact first
+      });
+    } else {
+      backgroundMusic.pause();
+    }
+  }, [backgroundMusic, gameStarted, isPaused, gameOver, isMuted]);
+
+  // Mute/unmute function
+  const toggleMute = useCallback(() => {
+    setIsMuted((prev) => !prev);
+    if (backgroundMusic) {
+      if (isMuted) {
+        backgroundMusic.volume = 0.3;
+      } else {
+        backgroundMusic.volume = 0;
+      }
+    }
+  }, [backgroundMusic, isMuted]);
 
   // Check if player is at max health for speed boost
   useEffect(() => {
@@ -599,7 +703,10 @@ export default function App() {
         setIsMaxHealth(true);
       }
       if (e.key === " " && !gameStarted) {
-        setGameStarted(true);
+        // Only allow starting the game on desktop devices
+        if (isDesktop) {
+          setGameStarted(true);
+        }
       }
       // Pause/Resume with P key or Escape
       if (
@@ -613,11 +720,23 @@ export default function App() {
           handlePause();
         }
       }
+      // Handle mute toggle
+      if (e.key.toLowerCase() === "m" && gameStarted) {
+        toggleMute();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [gameOver, gameStarted, isPaused, handlePause, handleResume]);
+  }, [
+    gameOver,
+    gameStarted,
+    isPaused,
+    isDesktop,
+    handlePause,
+    handleResume,
+    toggleMute,
+  ]);
 
   // Initial memes - FIXED SPAWN BOUNDARIES
   useEffect(() => {
@@ -657,26 +776,76 @@ export default function App() {
 
         {!gameStarted ? (
           <div className="h-full flex items-center justify-center bg-black">
-            <div className="text-center text-green-400">
-              <div className="text-4xl mb-8 animate-pulse">MEME TRAIL</div>
-              <div className="text-lg mb-4">Survive by collecting memes!</div>
-              <div className="text-sm mb-8">
-                Use WASD or Arrow Keys to move
-                <br />
-                Health drains over time
-                <br />
-                <span className="text-yellow-400">
-                  Collect memes to restore health!
-                </span>
-                <br />
-                <span className="text-yellow-400">
-                  Max health = SPEED BOOST!
-                </span>
-                <br />
-                <span className="text-green-300">Press P or ESC to pause</span>
+            {!isDesktop ? (
+              // Mobile/Tablet Warning Screen
+              <div className="text-center text-green-400 max-w-lg px-6">
+                <div className="text-3xl mb-8 animate-pulse">
+                  ⚠️ PC/LAPTOP REQUIRED ⚠️
+                </div>
+
+                <div className="border-2 border-red-500 bg-black p-6 mb-6 relative">
+                  <div className="absolute inset-0 border-2 border-red-500 opacity-30 animate-pulse"></div>
+                  <div className="relative z-10">
+                    <div className="text-lg text-red-400 mb-4">
+                      ACCESS DENIED
+                    </div>
+                    <div className="text-sm text-green-300 leading-relaxed">
+                      MEME TRAIL is designed for PC and laptop computers only.
+                      <br />
+                      <br />
+                      This game requires:
+                      <br />• Full keyboard support (WASD/Arrow keys)
+                      <br />• Larger screen for optimal gameplay
+                      <br />• Desktop browser environment
+                      <br />
+                      <br />
+                      Please visit this game from a PC or laptop to play.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs opacity-60">
+                  Device detected:{" "}
+                  {navigator.userAgent.includes("Mobile")
+                    ? "Mobile"
+                    : navigator.userAgent.includes("Tablet") ||
+                      navigator.userAgent.includes("iPad")
+                    ? "Tablet"
+                    : "Unknown Mobile Device"}
+                </div>
               </div>
-              <div className="text-lg animate-pulse">Press SPACE to start</div>
-            </div>
+            ) : (
+              // Normal Welcome Screen for Desktop
+              <div className="text-center text-green-400">
+                <div className="text-4xl mb-8 animate-pulse">MEME TRAIL</div>
+                <div className="text-lg mb-4">Survive by collecting memes!</div>
+                <div className="text-sm mb-8">
+                  Use WASD or Arrow Keys to move
+                  <br />
+                  Health drains over time
+                  <br />
+                  <span className="text-yellow-400">
+                    Collect memes to restore health!
+                  </span>
+                  <br />
+                  <span className="text-yellow-400">
+                    Max health = SPEED BOOST!
+                  </span>
+                  <br />
+                  <span className="text-green-300">
+                    Press P or ESC to pause • M to mute
+                  </span>
+                </div>
+                <div className="text-lg animate-pulse">
+                  Press SPACE to start
+                </div>
+
+                {/* Desktop confirmation indicator */}
+                <div className="mt-6 text-xs opacity-60 border border-green-400 inline-block px-3 py-1">
+                  ✓ PC/Laptop Detected - Ready to Play
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="h-full flex flex-col">
@@ -686,6 +855,8 @@ export default function App() {
               speedBoostActive={speedBoostActive}
               isPaused={isPaused}
               onPause={handlePause}
+              isMuted={isMuted}
+              onToggleMute={toggleMute}
             />
             <div className="flex-1 relative">
               <GameBoard
