@@ -537,7 +537,7 @@ export default function App() {
     // Create audio element
     const audio = new Audio("/audio/background-music.mp3"); // Add your music file path
     audio.loop = true; // Loop the music
-    audio.volume = 0.3; // Set volume (0.0 to 1.0)
+    audio.volume = 0.2; // Set volume (0.0 to 1.0)
     audio.preload = "auto";
 
     setBackgroundMusic(audio);
